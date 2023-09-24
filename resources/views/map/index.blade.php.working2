@@ -1,0 +1,437 @@
+@extends('layouts.app')
+
+@section('title')
+    Map
+@endsection
+
+@section('css')
+    #map{background:#f3fff3;display:block;padding:0px;margin:0px;height:1000px;width:1000px}
+    #contextMenu {
+        display: none;
+        position: absolute;
+        width: 100px;
+        background-color: white;
+        box-shadow: 0 0 5px grey;
+        border-radius: 3px;
+      }
+      #contextMenu .section { display: none; }
+
+      
+@endsection
+@section('content')
+    @if(isset($locations) && $locations)
+        @php($player = Auth::user()->player)
+        <div id="map" height="1000" width="1000"></div>
+        <div id="coordBox">&nbsp;</div>
+        <h4>Locations</h4>
+        <table class="table task-table">
+            <thead>
+                <th>City</th>
+                <th>Location</th>
+                <th></th>
+            </thead>
+            <tbody>
+        @foreach($locations as $location)
+            @if($location->city)
+            <tr>
+                <td>@if($location->city){{ $location->city->name }}@endif</td>
+                <td>x: {{ $location->x }} y: {{ $location->y }}</td>
+                <td>
+                    @if($location->city && $location->city->id != $player->city->id)
+                        <form action="{{ route('city.army.send') }}" method="POST">
+                            @csrf
+                            <input type="hidden" name="city_to" value="{{ $location->city->id }}">                        
+                            <input type="hidden" name="city_from" value="{{ $player->city->id }}">
+                            <button class="btn btn-danger" type="submit">Send Army</button>
+                        </form>
+                    @endif
+                </td>
+            </tr>
+            @endif
+        @endforeach
+            </tbody>
+        </table>
+        <h4>Caravans</h4>
+        <table class="table task-table">
+            <thead>
+                
+                <th>From</th>
+                <th>To</th>
+                <th>Current</th>
+                <th>Items</th>
+                <th>Percent</th>
+                <th>Ticks</th>
+                <th>Returning</th>
+                <th></th>
+            </thead>
+            <tbody>
+        @foreach($caravans as $caravan)
+            <tr>
+                
+                <td>{{ $caravan->city_from->location->x }} {{ $caravan->city_from->location->y }}</td>
+                <td>{{ $caravan->city_to->location->x }} {{ $caravan->city_to->location->y }}</td>
+                <td>{{ json_encode($caravan['current']) }}</td>
+                <td>
+                    
+                </td>
+                <td>{{ $caravan->getPercentRouteComplete() }}</td>
+                <td>{{ $caravan->ticks_remaining }}/{{ $caravan->ticks }}</td>
+                <td>{{ $caravan->returning }}</td>
+                <td>
+                    
+                </td>
+
+            </tr>
+        @endforeach
+            </tbody>
+        </table>
+        <h4>Armies</h4>
+        <table class="table task-table">
+            <thead>
+                
+                <th>From</th>
+                <th>To</th>
+                <th>Current</th>
+                <th>Troops</th>
+                <th>Percent</th>
+                <th>Ticks</th>
+                <th>Returning</th>
+                <th>State</th>
+                <th></th>
+                <th></th>
+            </thead>
+            <tbody>
+        @foreach($armies as $army)
+            <tr>
+                
+                <td>{{ $army->locationFrom->x }} {{ $army->locationFrom->y }}</td>
+                <td>{{ $army->locationTo->x }} {{ $army->locationTo->y }}</td>
+                <td>{{ json_encode($army->getcurrentPosition()) }}</td>
+                <td>
+                    
+                </td>
+                <td>{{ $army->getPercentRouteComplete() }}</td>
+                <td>{{ $army->ticks_remaining }}/{{ $army->ticks }}</td>
+                <td>{{ $army->returning }}</td>
+                <td>{{ $army->state }}</td>
+                <td>
+                    <form action="{{ route('city.army.move') }}" method="POST">
+                        @csrf
+                        
+                        <input type="text" name="x">                        
+                        <input type="text" name="y">
+                        <button class="btn btn-danger" type="submit">Send Army</button>
+                    </form>
+                </td>
+
+                <td></td>
+            </tr>
+        @endforeach
+            </tbody>
+        </table>
+
+    @else
+        No cities found
+    @endif
+   
+    <div id="contextMenu">
+        <div id="city" class="section">
+            <form action="{{ route('city.army.send') }}" method="POST">
+                @csrf
+                <input type="hidden" name="city_to">                        
+                <input type="hidden" name="city_from" value="{{ $player->city->id }}">
+                <button class="btn btn-danger" type="submit">Attack city</button>
+            </form>
+            <a class="cityUrl" href="/city">View City</a>
+        </div>
+        <div id="map" class="section">
+            <form action="{{ route('city.army.move') }}" method="POST">
+                @csrf
+                <input type="hidden" name="x">                        
+                <input type="hidden" name="y">
+                <button class="btn btn-danger" type="submit">Move Army</button>
+            </form>
+        </div>
+        <div id="caravan" class="section">
+            <form action="{{ route('city.army.move') }}" method="POST">
+                @csrf
+                <input type="hidden" name="x">                        
+                <input type="hidden" name="y">
+                <input type="hidden" name="caravan_id">
+                <button class="btn btn-danger" type="submit">Attack Caravan</button>
+            </form>
+        </div>
+    </div>
+    <script src="/js/konva.min.js"></script>
+@endsection
+<script>
+
+@section('javascript')
+var locations = {!! json_encode($locations) !!};
+    var armies = {!! json_encode($armies) !!};
+    var caravans = {!! json_encode($caravans) !!};
+    
+    function redrawMap(items) {
+        var locationLayer = new Konva.Layer();
+        var armyLayer = new Konva.Layer();
+        var caravanLayer = new Konva.Layer();
+        var textLayer = new Konva.Layer();
+
+        var locations = items.locations;
+        var armies = items.armies;
+        locations.forEach(function(v){
+            //console.log(v);
+            var circle = new Konva.Circle({
+                x: v.x,
+                y: map.width()-v.y,
+                radius: 5,
+                fill: 'red',
+                stroke: 'black',
+                strokeWidth: 2,
+            });
+            if (v.city) {
+                circle.data = v;
+                if (v.city.influence) {
+                    var influenceCircle = new Konva.Circle({
+                        x: v.x,
+                        y: map.width()-v.y,
+                        radius: v.city.influence,
+                        fill: 'red',
+                        stroke: 'black',
+                        strokeWidth: 2,
+                        opacity: 0.3
+                    });
+                    influenceCircle.data = v;
+                    locationLayer.add(influenceCircle);
+                }
+                var text = new Konva.Text({
+                    x: v.x,
+                    y: (map.width()-v.y)+15,
+                    text: v.city.name,
+                    fontSize: 20,
+                    fontFamily: 'Calibri',
+                    fill: 'black',
+                  });
+                textLayer.add(text);
+            }
+
+            
+            locationLayer.add(circle);
+        });
+
+
+        armies.forEach(function(v){
+            console.log(v);
+            var line = new Konva.Line({
+                points: [
+                    v.location_from.x,map.width()-v.location_from.y,
+                    v.location_to.x,map.width()-v.location_to.y
+                ],
+                baseColor: 'red',
+                stroke: 'red',
+                strokeWidth: 5,
+                lineCap: 'round',
+                lineJoin: 'round',
+              });
+            var currentPosition = new Konva.Circle({
+                x: v.current.x,
+                y: map.width()-v.current.y,
+                radius: 5,
+                fill: 'black',
+                stroke: 'black',
+                strokeWidth: 1,
+            });
+            armyLayer.add(currentPosition);
+            armyLayer.add(line);
+        });
+        
+    console.log(caravans);
+        caravans.forEach(function(v){
+            //console.log(v);
+            var line = new Konva.Line({
+                points: [
+                    v.city_from.location.x,map.width()-v.city_from.location.y,
+                    v.city_to.location.x,map.width()-v.city_to.location.y],
+                stroke: 'green',
+                strokeWidth: 5,
+                lineCap: 'round',
+                lineJoin: 'round',
+              });
+            line.data = {caravan:{id:v.id}};
+            var currentPosition = new Konva.Circle({
+                x: v.current.x,
+                y: map.width()-v.current.y,
+                radius: 10,
+                fill: 'black',
+                stroke: 'black',
+                strokeWidth: 1,
+            });
+            caravanLayer.add(currentPosition);
+
+            caravanLayer.add(line);
+        });
+        
+        [locationLayer, armyLayer, caravanLayer].forEach((layer) => {
+
+            layer.on('mouseover', function(evt){
+                var shape = evt.target;
+                shape.baseColor = shape.stroke();
+                shape.baseOpacity = shape.opacity();
+                shape.baseFill = shape.fill();
+                shape.opacity(1);
+                shape.stroke('yellow');
+                shape.fill('yellow');
+                shape.draw();
+            });
+            layer.on('mouseout', function(evt){
+                var shape = evt.target;
+                shape.stroke(shape.baseColor);
+                shape.opacity(shape.baseOpacity);
+                shape.fill(shape.baseFill);
+                shape.draw();
+        //        console.log(evt.target.baseColor);
+            });
+        });
+        function getPosition(e) {
+          var posx = 0;
+          var posy = 0;
+
+          if (!e) var e = window.event;
+
+          if (e.pageX || e.pageY) {
+            posx = e.pageX;
+            posy = e.pageY;
+          } else if (e.clientX || e.clientY) {
+            posx = e.clientX + document.body.scrollLeft + 
+                               document.documentElement.scrollLeft;
+            posy = e.clientY + document.body.scrollTop + 
+                               document.documentElement.scrollTop;
+          }
+
+          return {
+            x: posx,
+            y: posy
+          }
+        }
+
+        var menuNode = document.getElementById('contextMenu');
+        function showMenu(type, event, data) {
+
+            menuNode.querySelectorAll('.section').forEach(function(v){
+                v.style = "display:none";
+            });
+            menuNode.style.display = 'initial';
+            var section = menuNode.querySelector('#'+type);
+            section.style.display = 'initial';
+            var containerRect = map.container().getBoundingClientRect();
+            var pos = getPosition(event.evt);
+
+
+            menuNode.style.top =  map.getPointerPosition().y + 50 + 'px';
+            menuNode.style.left = map.getPointerPosition().x + 40 + 'px';
+            if (type == 'city' && data && data.city) {
+                console.log('#'+type+" .btn-danger");
+                if (data.city.player_id == {{ $player->id }}) {
+    console.log(data.city);
+                    menuNode.querySelector('#'+type+" .btn-danger").innerText = "Return to city";
+                } else {
+                     menuNode.querySelector('#'+type+" .btn-danger").innerText = "Attack city";
+                }
+                    section.querySelector('form input[name=city_to]').value = data.city.id;
+                    section.querySelector('.cityUrl').href = "/city/"+data.city.id;
+                
+            }
+            console.log(data);
+            if (type == 'map' && data && data.x && data.y) {
+                section.querySelector('form input[name=x]').value = data.x;
+                section.querySelector('form input[name=y]').value = data.y;           
+            }
+
+            if (type == 'caravan' && data && data.x && data.y && data.caravan) {
+                section.querySelector('form input[name=x]').value = data.x;                      
+                section.querySelector('form input[name=y]').value = data.y;   
+                section.querySelector('form input[name=caravan_id]').value = data.caravan.id;     
+            }
+        }
+
+        function getMapPosition(e) {
+            var x = e.offsetX ? (e.offsetX) : e.pageX - map.offsetLeft;
+            var y = e.offsetY ? (e.offsetY) : e.pageY - map.offsetTop;
+            y = width-y;
+            return {
+                x: x,
+                y: y
+            }
+        }
+
+        document.getElementById('map').addEventListener("mousemove", function(e) {
+            var pos = getMapPosition(e);
+            var x = pos.x;
+            var y = pos.y;
+            coordBox.innerText = "x:"+x+",y:"+y+" "+"x:"+x+",y:"+(width-y)+" ";
+        });
+        
+        locationLayer.on('contextmenu', function(evt){
+            evt.evt.preventDefault();
+            var shape = evt.target;
+            var data = {city:{id:shape.data.city.id,'player_id':shape.data.city.player_id}};
+          
+            showMenu('city',event,data);
+            evt.cancelBubble = true;
+        });
+
+        caravanLayer.on('contextmenu', function(evt){
+            evt.evt.preventDefault();
+            var line = evt.target;
+            var pos = getMapPosition(evt.evt);
+            var data = {
+                caravan:{
+                    id:line.data.caravan.id,
+                    player_id:line.data.caravan.player_id
+                },
+                x: pos.x,
+                y: pos.y
+            };
+          
+            showMenu('caravan',event,data);
+            evt.cancelBubble = true;
+        });
+
+        armyLayer.on('contextmenu', function(evt){
+            evt.evt.preventDefault();
+
+            evt.cancelBubble = true;
+        });
+
+        map.on('contextmenu', function(evt) {
+            evt.evt.preventDefault();
+            var pos = getMapPosition(evt.evt);
+            var data = {x:pos.x,y:pos.y};
+            showMenu('map',event,data);
+        })
+
+        window.addEventListener('click', (e) => {
+            // hide menu
+            if (e.target != menuNode)
+                menuNode.style.display = 'none';
+          });
+
+        map.add(locationLayer);
+        map.add(armyLayer);
+        map.add(caravanLayer);
+        map.add(textLayer);
+    }
+@endsection
+
+@section('on-load')
+    var width = 1000;
+    var height = 1000;
+
+    var map = new Konva.Stage({
+        container: 'map',
+        width: width,
+        height: height,
+      });
+    redrawMap({locations:locations,armies:armies,caravans.caravans});
+@endsection
+</script>

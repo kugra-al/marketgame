@@ -1,0 +1,356 @@
+@extends('layouts.app')
+
+@section('title')
+    Map
+@endsection
+
+@section('css')
+    #map{background:#f3fff3;display:block;padding:0px;margin:0px}
+    .facade:before {
+        position: absolute;
+        content: '';
+        background-color:silver;
+        //border-radius:50%;
+        opacity:1;
+        width: 5px;
+        height: 5px;
+        pointer-events: none;
+        padding:0px;
+        margin:0px;
+    }
+    .facade{color:#000;position:absolute;font-size:5px;font-weight:bold;background: #FFFFFF80;text-decoration: none;
+        z-index:10;}
+    #ctxMenu { display: none; z-index:1000; position:absolute; border: 1px solid #000;}
+@endsection
+@section('content')
+    @if(isset($cities) && $cities)
+        @php($player = Auth::user()->player)
+        <canvas id="map" height="1000" width="1000"></canvas>
+        <div id="coordBox">&nbsp;</div>
+        <h4>Locations</h4>
+        <table class="table task-table">
+            <thead>
+                <th>City</th>
+                <th>Location</th>
+                <th></th>
+            </thead>
+            <tbody>
+        @foreach($locations as $location)
+            <tr>
+                <td>@if($location->city){{ $location->city->name }}@endif</td>
+                <td>x: {{ $location->x }} y: {{ $location->y }}</td>
+                <td>
+                    @if($location->city && $location->city->id != $player->city->id)
+                        <form action="{{ route('city.army.send') }}" method="POST">
+                            @csrf
+                            <input type="hidden" name="city_to" value="{{ $location->city->id }}">                        
+                            <input type="hidden" name="city_from" value="{{ $player->city->id }}">
+                            <button class="btn btn-danger" type="submit">Send Army</button>
+                        </form>
+                    @endif
+                </td>
+            </tr>
+        @endforeach
+            </tbody>
+        </table>
+        <h4>Armies</h4>
+        <table class="table task-table">
+            <thead>
+                
+                <th>From</th>
+                <th>To</th>
+                <th>Troops
+                <th>Ticks</th>
+                <th>Returning</th>
+                <th>State</th>
+                <th></th>
+                <th></th>
+            </thead>
+            <tbody>
+        @foreach($armies as $army)
+            <tr>
+                
+                <td>{{ $army['from']['name'] }}</td>
+                <td>{{ $army['to']['name'] }}</td>
+                <td>
+                    {{ json_encode($army['army']) }}
+                </td>
+                <td>{{ $army['ticks_remaining'] }}/{{ $army['ticks'] }}</td>
+                <td>{{ $army['returning'] }}</td>
+                <td>{{ $army['state'] }}</td>
+                <td>
+                    
+
+                        <form action="{{ route('city.army.move') }}" method="POST">
+                            @csrf
+                            <input type="hidden" name="army_id" value="{{ $army['id'] }}">
+                            <input type="text" name="x">                        
+                            <input type="text" name="y">
+                            <button class="btn btn-danger" type="submit">Send Army</button>
+                        </form>
+                  
+                </td>
+
+                <td></td>
+            </tr>
+        @endforeach
+            </tbody>
+        </table>
+
+    @else
+        No cities found
+    @endif
+   
+    <div id="ctxMenu">
+        <ul>
+            <li><form action="{{ route('city.army.move') }}" method="POST">
+                    @csrf
+                    <input type="hidden" name="army_id" value="{{ $army['id'] }}">
+                    <input type="hidden" name="x">                        
+                    <input type="hidden" name="y">
+                    <button class="btn btn-danger" type="submit">Send Army</button>
+                </form>
+            </li>
+        </ul>
+    </div>
+@endsection
+<script>
+@section('on-load')
+    let map = document.getElementById("map");
+
+    let shapes = [];
+    function addLocationToMap(x, y, data) {
+        const canvas = document.getElementById("map");
+        const ctx = canvas.getContext('2d');
+
+        mody = 1000-y;
+
+        if (data.city && data.city.influence) {
+            ctx.beginPath();
+            ctx.globalAlpha = 0.3;
+            ctx.arc(x,mody,data.city.influence, 0, 2*Math.PI);
+            ctx.fillStyle = 'red';
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = 'black';
+        }
+console.log(data);
+        ctx.beginPath();
+        ctx.arc(x,mody,5, 0, 2*Math.PI);
+        ctx.stroke();
+        ctx.fillRect(x,mody,1,1);
+        let name = "";
+        if (data.city)
+            name = data.city.name;
+        ctx.fillText(name+" x:"+x+" y:"+y,x+10,mody);
+    }
+
+    function addCaravanToMap(from, to, data) {
+        const canvas = document.getElementById("map");
+        const ctx = canvas.getContext('2d');
+
+        let color = 'blue';
+        if (data.returning)
+            color = '#000084';
+        // set line stroke and line width
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+
+        from.y = 1000 - from.y;
+        to.y = 1000 - to.y;
+        // draw a red line
+        ctx.beginPath();
+        ctx.setLineDash([5,10]);
+        console.log(from.x);
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x,to.y);
+        ctx.stroke();
+        ctx.fillText(data.percent_complete+"%",from.x+50,from.y-20);
+        shapes.push({from:{x:from.x,y:from.y},to:{x:to.x,y:to.y}});
+        //ctx.fillText(data.items,from.x-(data.items.length*10),from.y);
+    }
+
+    function addArmyToMap(from, to, data) {
+        const canvas = document.getElementById("map");
+        const ctx = canvas.getContext('2d');
+
+        let color = 'red';
+        if (data.returning)
+            color = '#a90000';
+        // set line stroke and line width
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+
+        from.y = 1000 - from.y;
+        to.y = 1000 - to.y;
+        // draw a red line
+        ctx.beginPath();
+        ctx.setLineDash([5,10]);
+        console.log(from.x);
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x,to.y);
+        ctx.stroke();
+        ctx.fillText(data.percent_complete+"%",from.x+50,from.y-20);
+        shapes.push({from:{x:from.x,y:from.y},to:{x:to.x,y:to.y}});
+        //ctx.fillText(data.items,from.x-(data.items.length*10),from.y);
+    }
+    
+
+    let locations = {!! json_encode($locations) !!};
+    locations.forEach(function(v){
+        console.log(v);
+        addLocationToMap(v.x,v.y,v);
+        //console.log(v);
+    });
+    let caravans = {!! json_encode($caravans) !!};
+    caravans.forEach(function(v){
+        addCaravanToMap({x:v['from']['x'],y:v['from']['y']},{x:v['to']['x'],y:v['to']['y']},v);
+        console.log(v);
+    })
+
+    let armies = {!! json_encode($armies) !!};
+    armies.forEach(function(v){
+        addArmyToMap({x:v['from']['x'],y:v['from']['y']},{x:v['to']['x'],y:v['to']['y']},v);
+        console.log(v);
+    })
+
+    const ctx = document.getElementById("map").getContext('2d');
+    let coordBox = document.getElementById('coordBox');
+    map.addEventListener("mousemove", function(e) {
+        var x = e.offsetX ? (e.offsetX) : e.pageX - map.offsetLeft;
+        var y = e.offsetY ? (e.offsetY) : e.pageY - map.offsetTop;
+        y = 1000-y;
+        coordBox.innerText = "x:"+x+",y:"+y+" "+"x:"+x+",y:"+(1000-y)+" ";
+
+        for (var x = 0; x < shapes.length; x++) {
+            let shape = shapes[x];
+            ctx.beginPath();
+            ctx.moveTo(shape.from.x, shape.from.y);
+            ctx.lineTo(shape.to.x,shape.to.y);
+            ctx.closePath();
+            if (ctx.isPointInPath(x,1000-y))
+                console.log('yes');
+        }
+    });
+
+    map.addEventListener("contextmenu", function(e) {
+        e.preventDefault();
+        var x = e.offsetX ? (e.offsetX) : e.pageX - map.offsetLeft;
+        var y = e.offsetY ? (e.offsetY) : e.pageY - map.offsetTop;
+        y = 1000-y;
+        coordBox.innerText = "x:"+x+",y:"+y+" "+"x:"+x+",y:"+(1000-y)+" ";
+console.log('plk');
+        var ctxMenu = document.getElementById("ctxMenu");
+        var ctxForm = ctxMenu.querySelector("form");
+        if (ctxForm) {
+            ctxForm.querySelector('[name=x]').value = x;
+            ctxForm.querySelector('[name=y]').value = y;
+        }
+        ctxMenu.style.display = "block";
+        ctxMenu.style.left = ((e.offsetX ? (e.offsetX) : e.pageX)+30)+"px";
+        ctxMenu.style.top = ((e.offsetY ? (e.offsetY) : e.pageY)+55)+"px";
+    });
+    map.addEventListener("click", function(e) {
+        var ctxMenu = document.getElementById("ctxMenu");
+        ctxMenu.style.display = 'none';
+    });
+    console.log(locations);
+    console.log(shapes);
+
+    var canvas  = document.getElementById('map'),
+        context = canvas.getContext('2d');
+    /* new */
+    class Shape {
+ 
+      constructor(options) {
+        this.options = {};
+        this.setOptions(options);
+        this.x = options.x;
+        this.y = options.y;
+
+        this.draw();
+      }
+      
+      
+      
+      setOptions (options) {
+
+        for (const [key,value] of Object.entries(options)) {
+            this.options[key] = value;
+        }
+        
+        return this;
+      }
+      
+      getOption (what) {
+        return this.options[what];
+      }
+      
+      draw () {
+        context.clearRect(this.options.x, this.options.y, this.options.radius * 2, this.options.radius * 2); 
+        
+        context.beginPath();
+            context.arc(this.options.x + this.options.radius, this.options.y + this.options.radius, this.options.radius, 0, 2 * Math.PI, false);
+            context.fillStyle = this.options.background;
+            context.fill();
+      console.log(this.options);
+        return this;
+      }
+      
+      getSize () {
+        return {
+                width: this.options.radius * 2,
+              height: this.options.radius * 2
+            }
+      }
+      
+      getPosition () {
+        var position = {
+                x: this.x,
+                y: this.y
+            }
+        
+            return position;
+      }
+
+      toggle() {
+        if (this.options.background = 'red')
+            this.options.background = 'green';
+        else
+            this.options.background = 'red';
+        this.draw();
+      }
+      
+      isMouseOver (x, y) {
+        var position = this.getPosition(),
+                    size   = this.getSize(),
+                    radius = this.options.radius,
+                    centerX = position.x + (size.width / 2),
+                    centerY = position.y + (size.height / 2),
+                    distanceX = x - centerX,
+                    distanceY = y - centerY;
+        
+                
+            return Math.round(Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2))) <= radius;
+      }
+      
+    };
+
+    var city = new Shape({
+      x: 50,
+      y: 50,
+      radius: 20,
+      background: 'red'
+    })
+    canvas.addEventListener('mousemove', function (e) {
+        var x = e.offsetX ? (e.offsetX) : e.pageX - map.offsetLeft;
+        var y = e.offsetY ? (e.offsetY) : e.pageY - map.offsetTop;
+        // = 1000-y;
+      
+      if (city.isMouseOver(x, y)) {
+        city.toggle();
+        console.log(city)
+      }
+    });
+@endsection
+</script>
