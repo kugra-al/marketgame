@@ -22,4 +22,4 @@ each building can produce something
 each building can also be used to craft something
 amount produced/crafted per tick relies on the number of workers doing it
 
-This is not coded well. It's very sloppy and I learn a lot (of what not to do) making this. But it was a fun project I spent a few months on.
+This is not coded well. It's very sloppy and I learnt a lot (of what not to do) making this. But it was a fun project I spent a few months on.
